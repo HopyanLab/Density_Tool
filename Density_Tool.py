@@ -393,6 +393,7 @@ class Window(QWidget):
 		self.setWindowTitle(self.title)
 		self.file_path = None
 		self.image = None
+		self.image_array = None
 		self.points = None
 		self.voronoi = None
 		self.areas = None
@@ -484,27 +485,31 @@ class Window(QWidget):
 	def open_file (self):
 		self.file_path = None
 		self.image = None
+		self.image_array = None
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.channel_box.clear()
+		self.channel = 0
 		self.canvas.reset()
 		if self.file_dialog():
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
-				self.image = np.array(Image.open(self.file_path))
-				self.channel_box.clear()
-				self.channel = 0
-				if len(self.image.shape) > 2:
-					for index in range(self.image.shape[2]):
+				self.image_array = np.array(Image.open(self.file_path))
+				if len(self.image_array.shape) > 2:
+					for index in range(self.image_array.shape[2]):
 						self.channel_box.addItem(f'{index:d}')
 					self.channel_box.setCurrentIndex = 0
 				self.update_image()
 	
 	def update_image(self):
-		if len(self.image.shape) == 2:
-			self.canvas.update_image(self.image)
+		if self.image_array is None:
+			return False
+		if len(self.image_array.shape) == 2:
+			self.image = self.image_array
 		else:
-			self.canvas.update_image(self.image[:,:,self.channel])
+			self.image = self.image[:,:,self.channel]
+		self.canvas.update_image(self.image)
 	
 	def find_cells (self):
 		if self.image is None:
