@@ -25,7 +25,8 @@ from PyQt5.QtWidgets import (
 							QPushButton, QHBoxLayout, QVBoxLayout,
 							QComboBox, QCheckBox, QSlider, QProgressBar,
 							QFormLayout, QLineEdit, QTabWidget,
-							QSizePolicy, QFileDialog, QMessageBox
+							QSizePolicy, QFileDialog, QMessageBox,
+							QFrame
 							)
 from pathlib import Path
 
@@ -177,6 +178,22 @@ def setup_combobox (function, layout, label_text):
 	else:
 		layout.addWidget(combobox)
 	return combobox
+
+def setup_labelbox (label_text, initial_text):
+	text_box = QFrame()
+	layout = QHBoxLayout()
+	text_box.setFrameShape(QFrame.StyledPanel)
+#	self.instruction_box.setSizePolicy(QSizePolicy.Expanding)
+	label = QLabel(label_text)
+	label.setAlignment(Qt.AlignLeft)
+	text = QLabel(initial_text)
+	text.setAlignment(Qt.AlignLeft)
+#	self.instruction_text.setWordWrap(True)
+	layout.addWidget(label)
+	layout.addWidget(text)
+	layout.addStretch()
+	text_box.setLayout(layout)
+	return text_box, text
 
 def clear_layout (layout):
 	for i in reversed(range(layout.count())): 
@@ -417,6 +434,10 @@ class Window(QWidget):
 		main_layout = QVBoxLayout()
 		main_layout.addWidget(self.canvas)
 		main_layout.addWidget(self.toolbar)
+		file_box, self.file_text = setup_labelbox(
+						'<font color="red">File Name: </font>',
+						'No file opened.')
+		main_layout.addWidget(file_box)
 		options_layout = QHBoxLayout()
 		self.button_open = setup_button(self.open_file,
 											options_layout,
@@ -502,7 +523,9 @@ class Window(QWidget):
 		self.channel_box.clear()
 		self.channel = 0
 		self.canvas.reset()
+		self.file_text.setText('No file opened.')
 		if self.file_dialog():
+			self.file_text.setText(str(self.file_path))
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
 				self.image = read_tiff(self.file_path)
@@ -541,8 +564,6 @@ class Window(QWidget):
 				continue
 			self.areas[index] = PolyArea(self.voronoi.vertices[polygon,0],
 										 self.voronoi.vertices[polygon,1])
-
-			
 		self.areas[self.areas>self.area_threashold] = 0
 		self.canvas.update_voronoi(self.voronoi, self.areas)
 
