@@ -396,6 +396,7 @@ class Window(QWidget):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.channel = 0
 		self.neighbourhood_size = 16
 		self.gauss_deviation = 2
 		self.threshold_difference = 4
@@ -414,6 +415,9 @@ class Window(QWidget):
 		self.button_density = setup_button(self.calc_density,
 											options_layout,
 											'Find Density')
+		self.channel_box = setup_combobox(
+							self.select_channel,
+							options_layout, 'Channel:')
 		self.textbox_size = setup_textbox(self.get_textboxes,
 											options_layout,
 											'Size:')
@@ -454,6 +458,10 @@ class Window(QWidget):
 											maximum_value = 12000,
 											is_int = True)
 	
+	def select_channel (self):
+		self.channel = self.channel_box.currentIndex()
+		self.update_image()
+	
 	def file_dialog (self):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
@@ -484,7 +492,19 @@ class Window(QWidget):
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
 				self.image = np.array(Image.open(self.file_path))
-				self.canvas.update_image(self.image)
+				self.channel_box.clear()
+				self.channel = 0
+				if len(self.image.shape) > 2:
+					for index in range(self.image.shape[2]):
+						self.channel_box.addItem(f'{index:d}')
+					self.channel_box.setCurrentIndex = 0
+				self.update_image()
+	
+	def update_image(self):
+		if len(self.image.shape) == 2:
+			self.canvas.update_image(self.image)
+		else:
+			self.canvas.update_image(self.image[:,:,self.channel])
 	
 	def find_cells (self):
 		if self.image is None:
