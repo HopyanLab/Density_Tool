@@ -233,6 +233,18 @@ def find_centres (frame, neighbourhood_size = 16,
 	return centres
 
 ################################################################################
+# read multichannel tiff #
+##########################
+
+def read_tiff(path):
+	img = Image.open(path)
+	images = []
+	for i in range(img.n_frames):
+		img.seek(i)
+		images.append(np.array(img))
+	return np.array(images)
+
+################################################################################
 # returns area of a polygon #
 #############################
 
@@ -393,7 +405,6 @@ class Window(QWidget):
 		self.setWindowTitle(self.title)
 		self.file_path = None
 		self.image = None
-		self.image_array = None
 		self.points = None
 		self.voronoi = None
 		self.areas = None
@@ -485,7 +496,6 @@ class Window(QWidget):
 	def open_file (self):
 		self.file_path = None
 		self.image = None
-		self.image_array = None
 		self.points = None
 		self.voronoi = None
 		self.areas = None
@@ -495,26 +505,21 @@ class Window(QWidget):
 		if self.file_dialog():
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
-				self.image_array = np.array(Image.open(self.file_path))
-				if len(self.image_array.shape) > 2:
-					for index in range(self.image_array.shape[2]):
-						self.channel_box.addItem(f'{index:d}')
-					self.channel_box.setCurrentIndex = 0
-				self.update_image()
+				self.image = read_tiff(self.file_path)
+				for index in range(self.image.shape[0]):
+					self.channel_box.addItem(f'{index:d}')
+				self.channel_box.setCurrentIndex = 0
+			self.update_image()
 	
 	def update_image(self):
-		if self.image_array is None:
+		if self.image is None:
 			return False
-		if len(self.image_array.shape) == 2:
-			self.image = self.image_array
-		else:
-			self.image = self.image[:,:,self.channel]
-		self.canvas.update_image(self.image)
+		self.canvas.update_image(self.image[self.channel,:,:])
 	
 	def find_cells (self):
 		if self.image is None:
 			return False
-		self.points = find_centres(self.image,
+		self.points = find_centres(self.image[self.channel,:,:],
 						neighbourhood_size = self.neighbourhood_size,
 						threshold_difference = self.threshold_difference,
 						gauss_deviation = self.gauss_deviation)
