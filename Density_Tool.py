@@ -550,7 +550,7 @@ class Window(QWidget):
 	
 	def get_textboxes (self):
 				self.neighbourhood_size = get_textbox(self.textbox_size,
-											minimum_value = 4,
+											minimum_value = 1,
 											maximum_value = 128,
 											is_int = True)
 				self.gauss_deviation = get_textbox(self.textbox_sigma,
