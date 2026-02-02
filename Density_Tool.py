@@ -210,6 +210,8 @@ def find_centres (frame, neighbourhood_size = 16,
 	x_size, y_size = frame.shape[0:2]
 	if len(frame.shape) == 3:
 		frame = frame[:,:,channel]
+	frame = np.random.uniform(low = 0.0, high = 1e-5, size = frame.shape) + \
+			np.astype(frame, float)
 	frame = ndi.gaussian_filter(frame, gauss_deviation)
 	frame_max = ndi.maximum_filter(frame, neighbourhood_size)
 	maxima = (frame == frame_max)
@@ -277,6 +279,7 @@ class MPLCanvas(FigureCanvas):
 	def __init__ (self, parent=None, width=8, height=8, dpi=100):
 		self.fig = Figure(figsize=(width, height), dpi=dpi)
 		self.ax = self.fig.add_subplot(111)
+		self.ax.set_facecolor('black')
 		FigureCanvas.__init__(self, self.fig)
 		self.setParent(parent)
 		FigureCanvas.setSizePolicy(self,
@@ -292,27 +295,41 @@ class MPLCanvas(FigureCanvas):
 		self.points_plot = None
 		self.lines_plot = None
 		self.areas_plot = None
+		self.show_image = True
+		self.show_points = True
+		self.show_voronoi = True
 	
 	def plot_image (self):
 		if self.image is None:
 			return False
-		self.image_plot = self.ax.imshow(self.image,
-										 cmap='Grays_r',
-										 zorder=5)
+		if self.show_image:
+			self.image_plot = self.ax.imshow(self.image,
+											 cmap='Grays_r',
+											 zorder=5)
 	
 	def plot_points (self):
 		if self.points is None:
 			return False
-		if self.voronoi is None or self.areas is None:
-			self.points_plot = self.ax.plot(self.points[:,0],
-											self.points[:,1],
-											linestyle = '',
-											marker = '.',
-											markersize = 1.,
-											color = 'white',
-											zorder=6)
-		else:
-			pass
+		if self.show_points:
+#		if self.voronoi is None or self.areas is None:
+			if len(self.points.shape) == 2:
+				self.points_plot = self.ax.plot(self.points[:,0],
+												self.points[:,1],
+												linestyle = '',
+												marker = '.',
+												markersize = 3000. / \
+													self.image.shape[0],
+												color = 'tab:blue',
+												zorder=6)
+			elif len(self.points.shape) == 3:
+				self.points_plot = self.ax.plot(self.points[:,0],
+												self.points[:,1],
+												linestyle = '',
+												marker = '.',
+												markersize = 3000. / \
+													self.image.shape[0],
+												color = 'tab:blue',
+												zorder=6)
 	
 	def plot_voronoi (self):
 		if self.points is None:
@@ -320,6 +337,8 @@ class MPLCanvas(FigureCanvas):
 		if self.voronoi is None:
 			return False
 		if self.areas is None:
+			return False
+		if not self.show_voronoi:
 			return False
 		area_min = np.amin(self.areas[self.areas>0])
 		area_max = np.amax(self.areas[self.areas>0])
@@ -359,7 +378,12 @@ class MPLCanvas(FigureCanvas):
 		self.lines_plot = None
 		self.remove_plot_element(self.areas_plot)
 		self.areas_plot = None
+		xmin, xmax = self.ax.get_xlim()
+		ymin, ymax = self.ax.get_ylim()
 		self.ax.clear()
+		self.ax.set_xlim([xmin,xmax])
+		self.ax.set_ylim([ymin,ymax])
+		self.ax.set_facecolor('black')
 		self.draw()
 	
 	def remove_plot_element (self, plot_element):
@@ -396,6 +420,20 @@ class MPLCanvas(FigureCanvas):
 		self.areas = areas
 		self.refresh()
 	
+	def update_switches (self, show_image = True, show_points = True,
+							show_voronoi = True):
+		self.show_image = show_image
+		self.show_points = show_points
+		self.show_voronoi = show_voronoi
+		self.refresh()
+	
+	def reset_zoom (self):
+		if self.image is None:
+			return False
+		self.ax.set_ylim([self.image.shape[0]-1,0])
+		self.ax.set_xlim([0,self.image.shape[1]-1])
+		self.draw()
+	
 	def reset (self):
 		self.clear_canvas()
 		self.image = None
@@ -406,6 +444,9 @@ class MPLCanvas(FigureCanvas):
 		self.points_plot = None
 		self.lines_plot = None
 		self.areas_plot = None
+		self.show_image = True
+		self.show_points = True
+		self.show_voronoi = True
 
 ################################################################################
 # main window #
@@ -425,15 +466,37 @@ class Window(QWidget):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.frame = 0
 		self.channel = 0
-		self.neighbourhood_size = 16
+		self.neighbourhood_size = 4
 		self.gauss_deviation = 2
 		self.threshold_difference = 4
 		self.area_threashold = 5000
 		# layout for full window
 		main_layout = QVBoxLayout()
 		main_layout.addWidget(self.canvas)
-		main_layout.addWidget(self.toolbar)
+		toolbar_layout = QHBoxLayout()
+		toolbar_layout.addWidget(self.toolbar)
+		self.button_zoom = setup_button(self.reset_zoom,
+										toolbar_layout,
+										'Reset Zoom')
+		number_box, self.number_text = setup_labelbox(
+						'<font color="red">Number: </font>',
+						'None')
+		toolbar_layout.addWidget(number_box)
+		self.checkbox_image = setup_checkbox(self.checkboxes,
+											toolbar_layout,
+											'show image',
+											True)
+		self.checkbox_points = setup_checkbox(self.checkboxes,
+											toolbar_layout,
+											'show points',
+											True)
+		self.checkbox_voronoi = setup_checkbox(self.checkboxes,
+											toolbar_layout,
+											'show voronoi',
+											True)
+		main_layout.addLayout(toolbar_layout)
 		file_box, self.file_text = setup_labelbox(
 						'<font color="red">File Name: </font>',
 						'No file opened.')
@@ -448,6 +511,9 @@ class Window(QWidget):
 		self.button_density = setup_button(self.calc_density,
 											options_layout,
 											'Find Density')
+		self.frame_box = setup_combobox(
+							self.select_frame,
+							options_layout, 'Frame:')
 		self.channel_box = setup_combobox(
 							self.select_channel,
 							options_layout, 'Channel:')
@@ -473,6 +539,15 @@ class Window(QWidget):
 		self.textbox_diff.setText(str(self.threshold_difference))
 		self.textbox_area.setText(str(self.area_threashold))
 	
+	def reset_zoom (self):
+		self.canvas.reset_zoom()
+	
+	def checkboxes (self):
+		self.canvas.update_switches(
+						show_image = self.checkbox_image.isChecked(),
+						show_points = self.checkbox_points.isChecked(),
+						show_voronoi = self.checkbox_voronoi.isChecked())
+	
 	def get_textboxes (self):
 				self.neighbourhood_size = get_textbox(self.textbox_size,
 											minimum_value = 4,
@@ -490,6 +565,10 @@ class Window(QWidget):
 											minimum_value = 0,
 											maximum_value = 12000,
 											is_int = True)
+	
+	def select_frame (self):
+		self.frame = self.frame_box.currentIndex()
+		self.update_image()
 	
 	def select_channel (self):
 		self.channel = self.channel_box.currentIndex()
@@ -520,6 +599,8 @@ class Window(QWidget):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.frame_box.clear()
+		self.frame = 0
 		self.channel_box.clear()
 		self.channel = 0
 		self.canvas.reset()
@@ -529,15 +610,24 @@ class Window(QWidget):
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
 				self.image = read_tiff(self.file_path)
-				for index in range(self.image.shape[0]):
-					self.channel_box.addItem(f'{index:d}')
+				if len(self.image.shape) == 3:
+					self.image = self.image[:,:,:,np.newaxis]
+					self.channel_box.addItem('0')
+				else:
+					for index in range(self.image.shape[3]):
+						self.channel_box.addItem(f'{index:d}')
 				self.channel_box.setCurrentIndex = 0
+				for index in range(self.image.shape[0]):
+					self.frame_box.addItem(f'{index:d}')
+				self.frame_box.setCurrentIndex = 0
+				print(self.image.shape)
 			self.update_image()
 	
 	def update_image(self):
 		if self.image is None:
 			return False
-		self.canvas.update_image(self.image[self.channel,:,:])
+		self.canvas.update_image(self.image[self.frame,:,:, self.channel])
+		self.canvas.reset_zoom()
 	
 	def find_cells (self):
 		if self.image is None:
@@ -546,6 +636,7 @@ class Window(QWidget):
 						neighbourhood_size = self.neighbourhood_size,
 						threshold_difference = self.threshold_difference,
 						gauss_deviation = self.gauss_deviation)
+		self.number_text.setText(str(len(self.points)))
 		self.canvas.update_points(self.points)
 	
 	def calc_density (self):
