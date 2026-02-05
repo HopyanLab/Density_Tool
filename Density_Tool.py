@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Qt5Agg')
 from matplotlib import pyplot as plt
+from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_qt5agg import (
 							FigureCanvasQTAgg as FigureCanvas,
 							NavigationToolbar2QT as NavigationToolbar
@@ -16,8 +17,8 @@ from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from PIL import Image
 from scipy import ndimage as ndi
-from shapely.geometry import Polygon
-from scipy.spatial import Delaunay, Voronoi
+from scipy.spatial import Delaunay, Voronoi, KDTree
+from scipy.interpolate import make_interp_spline
 from PyQt5.QtCore import Qt, QPoint, QRect, QSize
 from PyQt5.QtGui import QIntValidator, QMouseEvent
 from PyQt5.QtWidgets import (
@@ -291,45 +292,93 @@ class MPLCanvas(FigureCanvas):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.path = None
 		self.image_plot = None
 		self.points_plot = None
 		self.lines_plot = None
 		self.areas_plot = None
+		self.path_plot = None
 		self.show_image = True
 		self.show_points = True
 		self.show_voronoi = True
+		self.show_path = True
+		self.image_changed = False
+		self.points_changed = False
+		self.voronoi_changed = False
+		self.path_changed = False
 	
 	def plot_image (self):
 		if self.image is None:
 			return False
+		if not self.image_changed:
+			return False
+		self.image_changed = False
+		self.remove_plot_element(self.image_plot)
+		self.image_plot = None
 		if self.show_image:
 			self.image_plot = self.ax.imshow(self.image,
 											 cmap='Grays_r',
 											 zorder=5)
 	
+	def plot_path (self):
+		if self.path is None:
+			return False
+		if not self.path_changed:
+			return False
+		self.path_changed = False
+		self.remove_plot_element(self.path_plot)
+		self.path_plot = None
+		if self.show_path:
+			self.path_plot = []
+			self.path_plot.append(self.ax.plot(
+											self.path[:,0],
+											self.path[:,1],
+											linestyle = '-',
+											marker = '',
+											color = 'tab:orange',
+											zorder=9
+												))
+			self.path_plot.append(self.ax.plot(
+											self.path[-1,0],
+											self.path[-1,1],
+											linestyle = '',
+											marker = 'o',
+											color = 'tab:orange',
+											zorder=9
+												))
+	
 	def plot_points (self):
 		if self.points is None:
 			return False
+		if not self.points_changed:
+			return False
+		self.points_changed = False
+		self.remove_plot_element(self.points_plot)
+		self.points_plot = None
 		if self.show_points:
 #		if self.voronoi is None or self.areas is None:
 			if len(self.points.shape) == 2:
-				self.points_plot = self.ax.plot(self.points[:,0],
+				self.points_plot = []
+				self.points_plot.append(self.ax.plot(
+												self.points[:,0],
+												self.points[:,1],
+												linestyle = '',
+												marker = 'o',
+												markersize = 5000. / \
+													self.image.shape[0],
+												color = 'white',
+												zorder=6)
+													)
+				self.points_plot.append(self.ax.plot(
+												self.points[:,0],
 												self.points[:,1],
 												linestyle = '',
 												marker = '.',
-												markersize = 3000. / \
+												markersize = 4000. / \
 													self.image.shape[0],
-												color = 'tab:blue',
-												zorder=6)
-			elif len(self.points.shape) == 3:
-				self.points_plot = self.ax.plot(self.points[:,0],
-												self.points[:,1],
-												linestyle = '',
-												marker = '.',
-												markersize = 3000. / \
-													self.image.shape[0],
-												color = 'tab:blue',
-												zorder=6)
+												color = 'magenta',
+												zorder=7)
+													)
 	
 	def plot_voronoi (self):
 		if self.points is None:
@@ -338,6 +387,13 @@ class MPLCanvas(FigureCanvas):
 			return False
 		if self.areas is None:
 			return False
+		if not self.voronoi_changed:
+			return False
+		self.voronoi_changed = False
+#		self.remove_plot_element(self.lines_plot)
+#		self.lines_plot = None
+		self.remove_plot_element(self.areas_plot)
+		self.areas_plot = None
 		if not self.show_voronoi:
 			return False
 		area_min = np.amin(self.areas[self.areas>0])
@@ -349,6 +405,7 @@ class MPLCanvas(FigureCanvas):
 											vmin = area_min,
 											vmax = area_max)
 		points = self.voronoi.vertices
+		self.areas_plot = []
 		for index, centre in enumerate(self.voronoi.points):
 			if self.areas[index] == 0:
 				continue
@@ -363,11 +420,12 @@ class MPLCanvas(FigureCanvas):
 #									linewidth = 0.3,
 #									zorder = 8)
 			area_color = cmap(norm(self.areas[index]))
-			self.areas_plot = self.ax.fill(points[polygon,0],
-										   points[polygon,1],
-									color = area_color,
-									linewidth = 0.,
-									alpha = 1., zorder = 7)
+			self.areas_plot.append(self.ax.fill(points[polygon,0],
+												points[polygon,1],
+												color = area_color,
+												linewidth = 0.,
+												alpha = 1.,
+												zorder = 8))
 	
 	def clear_canvas (self):
 		self.remove_plot_element(self.image_plot)
@@ -389,42 +447,60 @@ class MPLCanvas(FigureCanvas):
 	def remove_plot_element (self, plot_element):
 		if plot_element is not None:
 			if isinstance(plot_element,list):
-				for line in plot_element:
+				for thingy in plot_element:
 					try:
-						line.remove()
+						self.remove_plot_element(thingy)
 					except:
-						pass
+						print('problem')
 			else:
 				try:
 					plot_element.remove()
 				except:
-					pass
+					print('problem')
 	
 	def refresh (self):
-		self.clear_canvas()
+	#	self.clear_canvas()
 		self.plot_image()
 		self.plot_points()
 		self.plot_voronoi()
+		self.plot_path()
 		self.draw()
 	
 	def update_image (self, image = None):
 		self.image = image
+		self.image_changed = True
 		self.refresh()
 	
 	def update_points (self, points = None):
 		self.points = points
+		self.points_changed = True
 		self.refresh()
 	
 	def update_voronoi (self, voronoi = None, areas = None):
 		self.voronoi = voronoi
 		self.areas = areas
+		self.voronoi_changed = True
 		self.refresh()
 	
 	def update_switches (self, show_image = True, show_points = True,
 							show_voronoi = True):
-		self.show_image = show_image
-		self.show_points = show_points
-		self.show_voronoi = show_voronoi
+		if show_image != self.show_image:
+			self.image_changed = True
+			self.show_image = show_image
+		if show_points != self.show_points:
+			self.points_changed = True
+			self.show_points = show_points
+		if show_voronoi != self.show_voronoi:
+			self.voronoi_changed = True
+			self.show_voronoi = show_voronoi
+		self.refresh()
+	
+	def update_path (self, path_vertices = np.zeros((0,2), dtype=int)):
+		if len(path_vertices) == 0:
+			self.path = None
+		else:
+			self.path = path_vertices
+		self.path_changed = True
 		self.refresh()
 	
 	def reset_zoom (self):
@@ -440,13 +516,16 @@ class MPLCanvas(FigureCanvas):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.path = None
 		self.image_plot = None
 		self.points_plot = None
 		self.lines_plot = None
 		self.areas_plot = None
+		self.path_plot = None
 		self.show_image = True
 		self.show_points = True
 		self.show_voronoi = True
+		self.show_path = True
 
 ################################################################################
 # main window #
@@ -466,12 +545,18 @@ class Window(QWidget):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.densities = None
+		self.path_vertices = np.zeros((0,2), dtype=int)
 		self.frame = 0
 		self.channel = 0
-		self.neighbourhood_size = 4
+		self.neighbourhood_size = 16
 		self.gauss_deviation = 2
 		self.threshold_difference = 4
 		self.area_threashold = 5000
+		self.path_distance = 64
+		self.path_number = 1000
+		self.path_changed = False
+		self.binning_number = 24
 		# layout for full window
 		main_layout = QVBoxLayout()
 		main_layout.addWidget(self.canvas)
@@ -480,10 +565,6 @@ class Window(QWidget):
 		self.button_zoom = setup_button(self.reset_zoom,
 										toolbar_layout,
 										'Reset Zoom')
-		number_box, self.number_text = setup_labelbox(
-						'<font color="red">Number: </font>',
-						'None')
-		toolbar_layout.addWidget(number_box)
 		self.checkbox_image = setup_checkbox(self.checkboxes,
 											toolbar_layout,
 											'show image',
@@ -501,36 +582,52 @@ class Window(QWidget):
 						'<font color="red">File Name: </font>',
 						'No file opened.')
 		main_layout.addWidget(file_box)
-		options_layout = QHBoxLayout()
+		upper_layout = QHBoxLayout()
 		self.button_open = setup_button(self.open_file,
-											options_layout,
+											upper_layout,
 											'Open File')
-		self.button_find = setup_button(self.find_cells,
-											options_layout,
-											'Find Cells')
-		self.button_density = setup_button(self.calc_density,
-											options_layout,
-											'Find Density')
 		self.frame_box = setup_combobox(
 							self.select_frame,
-							options_layout, 'Frame:')
+							upper_layout, 'Frame:')
 		self.channel_box = setup_combobox(
 							self.select_channel,
-							options_layout, 'Channel:')
+							upper_layout, 'Channel:')
+		number_box, self.number_text = setup_labelbox(
+						'<font color="red">Number: </font>',
+						'None')
+		upper_layout.addWidget(number_box)
+		self.button_draw_path = setup_button(self.draw_path,
+										upper_layout,
+										'Draw Path',
+										toggle = True)
+		self.textbox_distance = setup_textbox(self.get_textboxes,
+											upper_layout,
+											'Distance:')
+		main_layout.addLayout(upper_layout)
+		lower_layout = QHBoxLayout()
+		self.button_find = setup_button(self.find_cells,
+											lower_layout,
+											'Find Cells')
+		self.button_density = setup_button(self.calc_density,
+											lower_layout,
+											'Find Density')
 		self.textbox_size = setup_textbox(self.get_textboxes,
-											options_layout,
+											lower_layout,
 											'Size:')
 		self.textbox_sigma = setup_textbox(self.get_textboxes,
-											options_layout,
+											lower_layout,
 											'Deviation:')
 		self.textbox_diff = setup_textbox(self.get_textboxes,
-											options_layout,
+											lower_layout,
 											'Difference:')
 		self.textbox_area = setup_textbox(self.get_textboxes,
-											options_layout,
+											lower_layout,
 											'Max Area:')
+		self.button_plot_densities = setup_button(self.plot_densities,
+											lower_layout,
+											'Plot density')
+		main_layout.addLayout(lower_layout)
 		self.setup_textboxes()
-		main_layout.addLayout(options_layout)
 		self.setLayout(main_layout)
 	
 	def setup_textboxes (self):
@@ -538,6 +635,7 @@ class Window(QWidget):
 		self.textbox_sigma.setText(str(self.gauss_deviation))
 		self.textbox_diff.setText(str(self.threshold_difference))
 		self.textbox_area.setText(str(self.area_threashold))
+		self.textbox_distance.setText(str(self.path_distance))
 	
 	def reset_zoom (self):
 		self.canvas.reset_zoom()
@@ -562,6 +660,10 @@ class Window(QWidget):
 											maximum_value = 16,
 											is_int = True)
 				self.area_threashold = get_textbox(self.textbox_area,
+											minimum_value = 0,
+											maximum_value = 12000,
+											is_int = True)
+				self.path_distance = get_textbox(self.textbox_distance,
 											minimum_value = 0,
 											maximum_value = 12000,
 											is_int = True)
@@ -599,6 +701,7 @@ class Window(QWidget):
 		self.points = None
 		self.voronoi = None
 		self.areas = None
+		self.densities = None
 		self.frame_box.clear()
 		self.frame = 0
 		self.channel_box.clear()
@@ -657,8 +760,104 @@ class Window(QWidget):
 										 self.voronoi.vertices[polygon,1])
 		self.areas[self.areas>self.area_threashold] = 0
 		self.canvas.update_voronoi(self.voronoi, self.areas)
+	
+	def plot_densities (self):
+		if self.densities is None:
+			return
+		plt.plot(self.densities[:,0],
+				 self.densities[:,1],
+					color = 'tab:blue',
+					linestyle = '',
+					marker = '.',
+					zorder = 6)
+		bins = np.linspace(0,1, self.binning_number)
+		indices = np.digitize(self.densities[:,0], bins)
+		indices -= 1
+		binned = np.zeros((len(np.unique(indices)), 2), dtype = float)
+		for index in np.unique(indices):
+			if len(self.densities[indices==index,0]) == 0:
+				continue
+			binned[index,0] = np.mean(self.densities[indices==index,0])
+			binned[index,1] = np.mean(self.densities[indices==index,1])
+		plt.plot(binned[:,0], binned[:,1],
+					color = 'tab:orange',
+					linestyle = '-',
+					marker = '',
+					zorder = 7)
+		plt.ylabel('Density (#/pixel^2)')
+		plt.xlabel('Position Along Path (Normalized)')
+		plt.show()
+	
+	def map_densities (self):
+		if not self.path_changed:
+			return False
+		if self.points is None or self.areas is None:
+			return False
+		if len(self.path_vertices) < self.path_number:
+			return False
+		tree = KDTree(self.points)
+		included = tree.query_ball_point(self.path_vertices,
+											self.path_distance)
+		included = np.unique(np.concatenate(included, axis=None))
+		self.densities = np.zeros((len(included),2), dtype = float)
+		points = self.points[included]
+		print(points.shape)
+		print(self.densities.shape)
+		areas = self.areas[included]
+		for index in np.arange(points.shape[0]):
+			closest = np.argmin(np.linalg.norm(
+										self.path_vertices - points[index],
+																	axis=1))
+			self.densities[index,0] = closest
+			self.densities[index,1] = 1/areas[index]
+		self.densities[:,0] /= self.path_number
+		self.path_changed = False
+		self.plot_densities()
+	
+	def draw_path (self):
+		self.drawing = self.button_draw_path.isChecked()
+		if self.drawing:
+			self.path_vertices = np.zeros((0,2), dtype = int)
+			self.canvas.update_path(self.path_vertices)
+			self.click_id = self.canvas.mpl_connect('button_press_event',
+															self.on_click)
+		else:
+			if len(self.path_vertices) < 2:
+				self.path_vertices = np.zeros((0,2), dtype = int)
+				return False
+			self.canvas.mpl_disconnect(self.click_id)
+			spline = make_interp_spline(np.arange(len(self.path_vertices)) / \
+											(len(self.path_vertices)-1),
+										self.path_vertices)
+			t = np.linspace(0,1,self.path_number)
+			self.path_vertices = spline(t)
+			self.path_changed = True
+			self.canvas.update_path(self.path_vertices)
+			self.map_densities()
+	
+	def on_click (self, event):
+		if self.image is None:
+			return False
+		self.position = np.array([int(np.floor(event.xdata)),
+								  int(np.floor(event.ydata))])
+		if (self.position[0] < 0) or \
+		   (self.position[0] > self.image.shape[1]) or \
+		   (self.position[1] < 0) or \
+		   (self.position[1] > self.image.shape[2]):
+			return False
+		if event.button is MouseButton.LEFT:
+			self.path_vertices = np.append(self.path_vertices,
+										self.position[np.newaxis,:], axis=0)
+			self.canvas.update_path(self.path_vertices)
+		elif event.button is MouseButton.RIGHT:
+			self.button_draw_path.setChecked(False)
+			self.draw_path()
+
+################################################################################
 
 if __name__ == "__main__":
+	QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+	QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 	app = QApplication(sys.argv)
 	window = Window()
 	window.show()
