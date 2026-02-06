@@ -761,6 +761,24 @@ class Window(QWidget):
 		self.areas[self.areas>self.area_threashold] = 0
 		self.canvas.update_voronoi(self.voronoi, self.areas)
 	
+	def export_densities (self):
+		if self.densities is None:
+			return False
+		options = QFileDialog.Options()
+		options |= QFileDialog.DontUseNativeDialog
+		file_name, _ = QFileDialog.getSaveFileName(self,
+								'Save File', '',
+								'CSV Files (*.csv);;' + \
+								'All Files (*)',
+								options=options)
+		if file_name == '':
+			return False
+		else:
+			file_path = Path(file_name)
+			np.savetxt(file_path, self.densities,
+						delimiter = ',', comments = '#',
+						header = '# position(arbitray), density(#/pixel^2)')
+	
 	def plot_densities (self):
 		if self.densities is None:
 			return
@@ -841,9 +859,11 @@ class Window(QWidget):
 		self.position = np.array([int(np.floor(event.xdata)),
 								  int(np.floor(event.ydata))])
 		if (self.position[0] < 0) or \
-		   (self.position[0] > self.image.shape[1]) or \
+		   (self.position[0] > self.image.shape[2]) or \
 		   (self.position[1] < 0) or \
-		   (self.position[1] > self.image.shape[2]):
+		   (self.position[1] > self.image.shape[1]):
+			print(self.position)
+			print(self.image.shape)
 			return False
 		if event.button is MouseButton.LEFT:
 			self.path_vertices = np.append(self.path_vertices,
