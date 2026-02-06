@@ -729,13 +729,13 @@ class Window(QWidget):
 	def update_image(self):
 		if self.image is None:
 			return False
-		self.canvas.update_image(self.image[self.frame,:,:, self.channel])
+		self.canvas.update_image(self.image[self.frame,:,:,self.channel])
 		self.canvas.reset_zoom()
 	
 	def find_cells (self):
 		if self.image is None:
 			return False
-		self.points = find_centres(self.image[self.channel,:,:],
+		self.points = find_centres(self.image[self.frame,:,:,self.channel],
 						neighbourhood_size = self.neighbourhood_size,
 						threshold_difference = self.threshold_difference,
 						gauss_deviation = self.gauss_deviation)
