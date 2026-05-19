@@ -426,6 +426,7 @@ class MPLCanvas(FigureCanvas):
 												linewidth = 0.,
 												alpha = 1.,
 												zorder = 8))
+			
 	
 	def clear_canvas (self):
 		self.remove_plot_element(self.image_plot)
@@ -537,10 +538,9 @@ class Window(QWidget):
 		self.title = "Cell Density Tool"
 		self.canvas = MPLCanvas()
 		self.toolbar = NavigationToolbar(self.canvas, self)
-		self.canvas = MPLCanvas()
-		self.toolbar = NavigationToolbar(self.canvas, self)
 		self.setWindowTitle(self.title)
 		self.file_path = None
+		self.save_file_path = None
 		self.image = None
 		self.points = None
 		self.voronoi = None
@@ -625,7 +625,10 @@ class Window(QWidget):
 											'Max Area:')
 		self.button_plot_densities = setup_button(self.plot_densities,
 											lower_layout,
-											'Plot density')
+											'Plot Densities')
+		self.button_plot_densities = setup_button(self.save_densities,
+											lower_layout,
+											'Save Densities')
 		main_layout.addLayout(lower_layout)
 		self.setup_textboxes()
 		self.setLayout(main_layout)
@@ -676,7 +679,7 @@ class Window(QWidget):
 		self.channel = self.channel_box.currentIndex()
 		self.update_image()
 	
-	def file_dialog (self):
+	def open_file_dialog (self):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
 		file_name, _ = QFileDialog.getOpenFileName(self,
@@ -708,7 +711,7 @@ class Window(QWidget):
 		self.channel = 0
 		self.canvas.reset()
 		self.file_text.setText('No file opened.')
-		if self.file_dialog():
+		if self.open_file_dialog():
 			self.file_text.setText(str(self.file_path))
 			if self.file_path.suffix.lower() == '.tif' or \
 					self.file_path.suffix.lower() == '.tiff':
@@ -722,9 +725,37 @@ class Window(QWidget):
 				self.channel_box.setCurrentIndex = 0
 				for index in range(self.image.shape[0]):
 					self.frame_box.addItem(f'{index:d}')
-				self.frame_box.setCurrentIndex = 0
+				self.frame_box.setCurrentIndex(0)
 				print(self.image.shape)
+				self.save_file_path = self.file_path.with_suffix('.csv')
 			self.update_image()
+	
+	def save_file_dialog (self):
+		options = QFileDialog.Options()
+		options |= QFileDialog.DontUseNativeDialog
+		file_name, _ = QFileDialog.getSaveFileName(self,
+								'Save CSV File',
+								self.save_file_path.name,
+								'All Files (*)',
+								options=options)
+		if file_name == '':
+			return False
+		else:
+			file_path = Path(file_name)
+			if file_path.suffix.lower() == '.csv':
+				self.save_file_path = file_path
+				return True
+			else:
+				self.save_file_path = file_path.with_suffix('.csv')
+				return True
+	
+	def save_densities (self):
+		if self.densities is None:
+			return False
+		if self.save_file_dialog():
+			np.savetxt(self.save_file_path, self.densities,
+						header = '# position(arbitray), density(#/pixel^2)',
+						delimiter = ',', comments = '#')
 	
 	def update_image(self):
 		if self.image is None:
@@ -760,24 +791,6 @@ class Window(QWidget):
 										 self.voronoi.vertices[polygon,1])
 		self.areas[self.areas>self.area_threashold] = 0
 		self.canvas.update_voronoi(self.voronoi, self.areas)
-	
-	def export_densities (self):
-		if self.densities is None:
-			return False
-		options = QFileDialog.Options()
-		options |= QFileDialog.DontUseNativeDialog
-		file_name, _ = QFileDialog.getSaveFileName(self,
-								'Save File', '',
-								'CSV Files (*.csv);;' + \
-								'All Files (*)',
-								options=options)
-		if file_name == '':
-			return False
-		else:
-			file_path = Path(file_name)
-			np.savetxt(file_path, self.densities,
-						delimiter = ',', comments = '#',
-						header = '# position(arbitray), density(#/pixel^2)')
 	
 	def plot_densities (self):
 		if self.densities is None:
